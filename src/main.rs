@@ -1,8 +1,11 @@
-use kvm_ioctls::{Kvm, VcpuFd};
-use kvm_bindings::{kvm_userspace_memory_region, kvm_regs, kvm_sregs};
 use anyhow::{Context, Result};
-use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use kvm_bindings::{kvm_regs, kvm_sregs, kvm_userspace_memory_region};
+use kvm_ioctls::{Kvm, VcpuFd};
 use vm_memory::bitmap::AtomicBitmap;
+use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 fn main() -> Result<()> {
     // open /dev/kvm
@@ -15,7 +18,7 @@ fn main() -> Result<()> {
 
     // guest memory
     let memory_size = 0x1000; // 4KB
-    
+
     let guest_phys_addr = GuestAddress(0x0000_0000);
     println!("{:?}", guest_phys_addr);
 
@@ -34,7 +37,7 @@ fn main() -> Result<()> {
         // the physical address inside the guest (GPA)
         // not Guest virtual addresse (GVA)
         guest_phys_addr: guest_phys_addr.0,
-        
+
         flags: 0,
     };
     println!("{:?}", mem_region);
@@ -49,26 +52,18 @@ fn main() -> Result<()> {
 
     println!("Successfully created VM and vCPU.");
 
-    // print to “COM1” at port 0x3F8 can show “Hello, world!” if you connect that serial port to standard output on the host. 
+    // print to “COM1” at port 0x3F8 can show “Hello, world!” if you connect that serial port to standard output on the host.
     let code = [
-        0xBA, 0xF8, 0x03,    // mov dx, 0x3F8
-        0xB0, b'H',          // mov al, 'H'
-        0xEE,                // out dx, al
-        0xB0, b'e',
-        0xEE,
-        0xB0, b'l',
-        0xEE,
-        0xB0, b'l',
-        0xEE,
-        0xB0, b'o',
-        0xEE,
-        0xB0, b'\n',
-        0xEE,
-        0xF4                 // hlt
+        0xBA, 0xF8, 0x03, // mov dx, 0x3F8
+        0xB0, b'H', // mov al, 'H'
+        0xEE, // out dx, al
+        0xB0, b'e', 0xEE, 0xB0, b'l', 0xEE, 0xB0, b'l', 0xEE, 0xB0, b'o', 0xEE, 0xB0, b'\n', 0xEE,
+        0xF4, // hlt
     ];
 
     // write your code bytes into the guest memory
-    gm.write(&code, guest_phys_addr).context("Failed to write code into guest memory")?;
+    gm.write(&code, guest_phys_addr)
+        .context("Failed to write code into guest memory")?;
     println!("Successfully wrote code into guest memory. {:?}", code);
 
     setup_registers(&vcpu_fd, guest_phys_addr.0)?;
@@ -98,12 +93,21 @@ fn main() -> Result<()> {
         }
     }
 
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })?;
+
     println!("VM is running... (press Ctrl+C to exit)");
-    loop {
+    while running.load(Ordering::SeqCst) {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    //Ok(())
+    println!("Ctrl+C pressed. Exiting loop...");
+
+    Ok(())
 }
 
 fn setup_registers(vcpu_fd: &VcpuFd, entry_point: u64) -> Result<()> {

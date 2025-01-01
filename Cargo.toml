@@ -12,3 +12,4 @@ vm-memory = { version = "0.16.1", features = [
     "backend-bitmap",
 ] }
 anyhow = "1.0.95"
+ctrlc = "3.4.5"
