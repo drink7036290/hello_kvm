@@ -1,0 +1,14 @@
+[package]
+name = "hello_kvm"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+kvm-ioctls = "0.19.1"
+kvm-bindings = "0.10.0"
+vm-memory = { version = "0.16.1", features = [
+    "backend-mmap",
+    "backend-bitmap",
+] }
+anyhow = "1.0.95"
